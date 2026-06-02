@@ -34,11 +34,13 @@ import {
   normalizeZoneName,
   renderClusteredParkingMarkers,
   renderCustomMarker,
+  renderLiveParkingNodes,
   renderRouteLine,
   renderRouteMarkers,
   stopParkingNodePulseAnimation,
   stopRouteFillAnimation,
 } from './logic'
+import { listLiveDevices, type LiveDevice } from '../../services/devicesApi'
 import { NavbarControl } from './NavbarControl'
 
 type PendingDestination =
@@ -96,6 +98,7 @@ export function ParkingMap({ onLoginClick }: ParkingMapProps = {}) {
   const [homePromptIndex, setHomePromptIndex] = useState(0)
   const [homePromptText, setHomePromptText] = useState('')
   const [isHomePromptDeleting, setIsHomePromptDeleting] = useState(false)
+  const [liveDevices, setLiveDevices] = useState<LiveDevice[]>([])
   const currentHomePrompt = HOME_PROMPT_ZONES[homePromptIndex]
   const supportedZones = useMemo(() => getSupportedZoneNames(), [])
   const destinationPickerZoneMarkers = useMemo(
@@ -207,6 +210,46 @@ export function ParkingMap({ onLoginClick }: ParkingMapProps = {}) {
     isHomepageVisible,
     isMapReady,
     selectedDestination,
+  ])
+
+  useEffect(() => {
+    let isActive = true
+
+    listLiveDevices().then((devices) => {
+      if (isActive) {
+        setLiveDevices(devices)
+      }
+    })
+
+    const intervalId = window.setInterval(() => {
+      listLiveDevices().then((devices) => {
+        if (isActive) {
+          setLiveDevices(devices)
+        }
+      })
+    }, 15000)
+
+    return () => {
+      isActive = false
+      window.clearInterval(intervalId)
+    }
+  }, [])
+
+  useEffect(() => {
+    if (!mapRef.current || !isMapReady) {
+      return
+    }
+
+    // Re-asserted whenever the demo markers re-render so the real devices stay
+    // layered on top with their distinct colors.
+    renderLiveParkingNodes(mapRef.current, liveDevices)
+  }, [
+    liveDevices,
+    isMapReady,
+    isHomepageVisible,
+    selectedDestination,
+    confirmedParkingMarker,
+    currentHomePrompt.zone,
   ])
 
   useEffect(() => {

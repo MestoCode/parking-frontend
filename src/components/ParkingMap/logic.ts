@@ -44,6 +44,7 @@ import type {
   RouteMarkerType,
   ZoneName,
 } from '../../shared/types'
+import type { LiveDevice } from '../../services/devicesApi'
 
 const ROUTE_TRANSPARENT_COLOR = 'rgba(47, 192, 119, 0)'
 const HOMEPAGE_CAMERA_DURATION = 2200
@@ -54,7 +55,25 @@ const HOMEPAGE_ZONE_HIGHLIGHT_FILL_LAYER_ID = 'homepage-zone-highlight-fill'
 let isRtlTextPluginRequested = false
 const routeFillAnimationFrameIds = new WeakMap<mapboxgl.Map, number>()
 const parkingNodePulseAnimationFrameIds = new WeakMap<mapboxgl.Map, number>()
+const liveNodePulseAnimationFrameIds = new WeakMap<mapboxgl.Map, number>()
 const navigationRouteCache = new Map<string, NavigationRoute>()
+
+// Real devices fetched from the backend are drawn on their own source/layers,
+// in colors that deliberately contrast with the green/red demo markers so the
+// two are easy to tell apart on the map.
+export const LIVE_NODES_SOURCE_ID = 'live-parking-nodes'
+export const LIVE_NODES_GLOW_LAYER_ID = 'live-parking-nodes-glow'
+export const LIVE_NODES_DOT_LAYER_ID = 'live-parking-nodes-dot'
+export const LIVE_NODES_LABEL_LAYER_ID = 'live-parking-nodes-label'
+const LIVE_NODE_COLOR = '#3b82f6' // real node -> blue
+const LIVE_GATEWAY_COLOR = '#a855f7' // real gateway -> violet
+const LIVE_NODE_COLOR_EXPRESSION = [
+  'match',
+  ['get', 'deviceType'],
+  'gateway',
+  LIVE_GATEWAY_COLOR,
+  LIVE_NODE_COLOR,
+] as const
 
 export const normalizeZoneName = (zoneName: string) => zoneName.trim().toLowerCase()
 
@@ -602,6 +621,139 @@ export function renderClusteredParkingMarkers(
   }
 
   startParkingNodePulseAnimation(map)
+}
+
+/**
+ * Draw the real mesh devices (from GET /devices) on a dedicated source so they
+ * never get tangled up with the demo marker clustering logic. Idempotent: if
+ * the layers already exist it just refreshes the data and keeps them on top.
+ */
+export function renderLiveParkingNodes(map: mapboxgl.Map, devices: LiveDevice[]) {
+  const data: GeoJSON.FeatureCollection = {
+    type: 'FeatureCollection',
+    features: devices.map((device) => ({
+      type: 'Feature',
+      properties: {
+        deviceId: device.deviceId,
+        deviceType: device.type,
+        title: device.deviceId,
+      },
+      geometry: {
+        type: 'Point',
+        coordinates: [device.longitude, device.latitude],
+      },
+    })),
+  }
+
+  const existingSource = map.getSource(LIVE_NODES_SOURCE_ID) as
+    | mapboxgl.GeoJSONSource
+    | undefined
+
+  if (existingSource) {
+    existingSource.setData(data)
+    bringLiveParkingNodesToTop(map)
+    return
+  }
+
+  map.addSource(LIVE_NODES_SOURCE_ID, { type: 'geojson', data })
+
+  map.addLayer({
+    id: LIVE_NODES_GLOW_LAYER_ID,
+    type: 'circle',
+    source: LIVE_NODES_SOURCE_ID,
+    paint: {
+      'circle-color': LIVE_NODE_COLOR_EXPRESSION,
+      'circle-radius': 20,
+      'circle-opacity': 0.22,
+      'circle-blur': 0.6,
+      'circle-emissive-strength': 1,
+    },
+  })
+
+  map.addLayer({
+    id: LIVE_NODES_DOT_LAYER_ID,
+    type: 'circle',
+    source: LIVE_NODES_SOURCE_ID,
+    paint: {
+      'circle-color': LIVE_NODE_COLOR_EXPRESSION,
+      'circle-radius': 8,
+      'circle-opacity': 0.96,
+      'circle-stroke-color': '#ffffff',
+      'circle-stroke-width': 2.5,
+      'circle-emissive-strength': 1.5,
+    },
+  })
+
+  map.addLayer({
+    id: LIVE_NODES_LABEL_LAYER_ID,
+    type: 'symbol',
+    source: LIVE_NODES_SOURCE_ID,
+    layout: {
+      'text-field': ['get', 'title'],
+      'text-size': 11,
+      'text-offset': [0, 1.5],
+      'text-anchor': 'top',
+      'text-font': ['DIN Offc Pro Medium', 'Arial Unicode MS Bold'],
+      'text-allow-overlap': false,
+    },
+    paint: {
+      'text-color': '#dbeafe',
+      'text-halo-color': '#0b1f3a',
+      'text-halo-width': 1.4,
+      'text-emissive-strength': 1,
+    },
+  })
+
+  startLiveNodePulseAnimation(map)
+}
+
+function bringLiveParkingNodesToTop(map: mapboxgl.Map) {
+  for (const layerId of [
+    LIVE_NODES_GLOW_LAYER_ID,
+    LIVE_NODES_DOT_LAYER_ID,
+    LIVE_NODES_LABEL_LAYER_ID,
+  ]) {
+    if (map.getLayer(layerId)) {
+      map.moveLayer(layerId)
+    }
+  }
+}
+
+function startLiveNodePulseAnimation(map: mapboxgl.Map) {
+  const startedAt = performance.now()
+
+  function animate(now: number) {
+    if (!map.getLayer(LIVE_NODES_GLOW_LAYER_ID)) {
+      stopLiveNodePulseAnimation(map)
+      return
+    }
+
+    const pulse = (Math.sin((now - startedAt) / 560) + 1) / 2
+
+    map.setPaintProperty(
+      LIVE_NODES_GLOW_LAYER_ID,
+      'circle-radius',
+      16 + pulse * 8,
+    )
+    map.setPaintProperty(
+      LIVE_NODES_GLOW_LAYER_ID,
+      'circle-opacity',
+      0.16 + pulse * 0.14,
+    )
+
+    liveNodePulseAnimationFrameIds.set(map, requestAnimationFrame(animate))
+  }
+
+  liveNodePulseAnimationFrameIds.set(map, requestAnimationFrame(animate))
+}
+
+function stopLiveNodePulseAnimation(map: mapboxgl.Map) {
+  const frameId = liveNodePulseAnimationFrameIds.get(map)
+
+  if (frameId !== undefined) {
+    cancelAnimationFrame(frameId)
+    liveNodePulseAnimationFrameIds.delete(map)
+  }
 }
 
 function startParkingNodePulseAnimation(map: mapboxgl.Map) {

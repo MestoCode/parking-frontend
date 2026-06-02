@@ -15,11 +15,19 @@ export type CustomMapMarker = {
   coordinates: LngLatTuple
 }
 
+export type ParkingMarkerSource = 'demo' | 'live'
+export type LiveDeviceKind = 'gateway' | 'node'
+
 export type ParkingMarkerProperties = {
   id: string
   zone: ZoneName
   title: string
   status?: 'available' | 'selected' | 'unavailable'
+  /** 'demo' = hardcoded sample marker, 'live' = real device from the database. */
+  source?: ParkingMarkerSource
+  /** Present only for live markers backed by a real mesh device. */
+  deviceId?: string
+  deviceType?: LiveDeviceKind
 }
 
 export type ParkingMarkerFeature = {

@@ -11,6 +11,7 @@ import {
   listAdminZones,
   moveAdminNodeToZone,
 } from '../../services/adminApi'
+import { listLiveDevices, type LiveDevice } from '../../services/devicesApi'
 
 type InternalDashboardProps = {
   onBackToMap: () => void
@@ -168,6 +169,7 @@ export function InternalDashboard({ onBackToMap, onSignOut }: InternalDashboardP
   const [activeSection, setActiveSection] = useState<DashboardSection>('Overview')
   const [zones, setZones] = useState<AdminZone[]>([])
   const [nodes, setNodes] = useState<AdminNode[]>([])
+  const [liveDevices, setLiveDevices] = useState<LiveDevice[]>([])
   const [isLoadingDashboard, setIsLoadingDashboard] = useState(true)
   const [isCreatingZone, setIsCreatingZone] = useState(false)
   const [isCreatingNode, setIsCreatingNode] = useState(false)
@@ -287,13 +289,15 @@ export function InternalDashboard({ onBackToMap, onSignOut }: InternalDashboardP
     setDashboardError('')
 
     try {
-      const [zonesResponse, nodesResponse] = await Promise.all([
+      const [zonesResponse, nodesResponse, liveDevicesResponse] = await Promise.all([
         listAdminZones(),
         listAdminNodes(),
+        listLiveDevices(),
       ])
 
       setZones(zonesResponse)
       setNodes(nodesResponse)
+      setLiveDevices(liveDevicesResponse)
     } catch (error) {
       setDashboardError(
         error instanceof Error ? error.message : 'Failed to load dashboard data.',
@@ -631,6 +635,61 @@ export function InternalDashboard({ onBackToMap, onSignOut }: InternalDashboardP
           {!isLoadingDashboard && displayedNodes.length === 0 && (
             <div className="rounded-2xl border border-white/10 bg-white/5 px-3 py-8 text-center text-sm font-semibold text-white/45 xl:col-span-2">
               No nodes found for this zone.
+            </div>
+          )}
+        </div>
+      </div>
+
+      <div className="rounded-4xl border border-sky-400/20 bg-sky-500/6 p-4 shadow-[0_22px_60px_rgba(0,0,0,0.16)]">
+        <div className="flex flex-wrap items-center justify-between gap-3">
+          <div>
+            <h3 className="text-lg font-semibold">Live mesh devices</h3>
+            <p className="mt-1 text-sm text-white/45">
+              Real gateways and nodes reporting over the mesh network — distinct
+              from the manually-created parking nodes above.
+            </p>
+          </div>
+          <span className="rounded-full bg-sky-400/15 px-3 py-1 text-xs font-bold text-sky-200">
+            {isLoadingDashboard ? 'Loading' : `${liveDevices.length} live`}
+          </span>
+        </div>
+        <div className="mt-4 grid gap-2 xl:grid-cols-2">
+          {liveDevices.map((device) => {
+            const isGateway = device.type === 'gateway'
+
+            return (
+              <div
+                key={device.deviceId}
+                className="flex items-center justify-between gap-3 rounded-2xl border border-white/10 bg-white/5 px-3 py-3 transition hover:border-white/18 hover:bg-white/7"
+              >
+                <div className="flex min-w-0 items-center gap-3">
+                  <span
+                    className={`h-2.5 w-2.5 shrink-0 rounded-full ${
+                      isGateway ? 'bg-violet-400' : 'bg-sky-400'
+                    }`}
+                  />
+                  <div className="min-w-0">
+                    <p className="truncate font-semibold text-white">{device.deviceId}</p>
+                    <p className="mt-1 text-xs text-white/40">
+                      {device.latitude.toFixed(5)}, {device.longitude.toFixed(5)}
+                    </p>
+                  </div>
+                </div>
+                <span
+                  className={`shrink-0 rounded-full border px-2.5 py-1 text-[10px] font-bold uppercase tracking-[0.16em] ${
+                    isGateway
+                      ? 'border-violet-400/30 bg-violet-400/10 text-violet-200'
+                      : 'border-sky-400/30 bg-sky-400/10 text-sky-200'
+                  }`}
+                >
+                  {device.type}
+                </span>
+              </div>
+            )
+          })}
+          {!isLoadingDashboard && liveDevices.length === 0 && (
+            <div className="rounded-2xl border border-white/10 bg-white/5 px-3 py-8 text-center text-sm font-semibold text-white/45 xl:col-span-2">
+              No live devices yet. Power on a gateway or node to see it appear here.
             </div>
           )}
         </div>
