@@ -1,17 +1,18 @@
 import { useState, type FormEvent } from 'react'
 import { motion } from 'motion/react'
 import React from 'react'
+import { loginInternalUser, storeInternalAuthSession } from '../../services/internalAuth'
 
 type LoginPageProps = {
   onBack: () => void
+  onLoginSuccess: () => void
 }
 
 type LoginErrors = {
-  email?: string
+  username?: string
   password?: string
+  form?: string
 }
-
-const EMAIL_PATTERN = /^[^\s@]+@[^\s@]+\.[^\s@]+$/
 
 function LoginLogo() {
   return (
@@ -29,20 +30,19 @@ function LoginLogo() {
   )
 }
 
-export function LoginPage({ onBack }: LoginPageProps) {
-  const [email, setEmail] = useState('')
+export function LoginPage({ onBack, onLoginSuccess }: LoginPageProps) {
+  const [username, setUsername] = useState('')
   const [password, setPassword] = useState('')
   const [errors, setErrors] = useState<LoginErrors>({})
+  const [isSubmitting, setIsSubmitting] = useState(false)
 
-  const handleLoginSubmit = (event: FormEvent<HTMLFormElement>) => {
+  const handleLoginSubmit = async (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault()
 
     const nextErrors: LoginErrors = {}
 
-    if (!email.trim()) {
-      nextErrors.email = 'Enter your email address.'
-    } else if (!EMAIL_PATTERN.test(email.trim())) {
-      nextErrors.email = 'Enter a valid email address.'
+    if (!username.trim()) {
+      nextErrors.username = 'Enter your username.'
     }
 
     if (!password) {
@@ -52,6 +52,28 @@ export function LoginPage({ onBack }: LoginPageProps) {
     }
 
     setErrors(nextErrors)
+
+    if (Object.keys(nextErrors).length > 0) {
+      return
+    }
+
+    setIsSubmitting(true)
+
+    try {
+      const authResponse = await loginInternalUser({
+        username: username.trim(),
+        password,
+      })
+
+      storeInternalAuthSession(authResponse)
+      onLoginSuccess()
+    } catch (error) {
+      setErrors({
+        form: error instanceof Error ? error.message : 'Login failed. Try again.',
+      })
+    } finally {
+      setIsSubmitting(false)
+    }
   }
 
   return (
@@ -124,29 +146,38 @@ export function LoginPage({ onBack }: LoginPageProps) {
           </div>
 
           <form noValidate onSubmit={handleLoginSubmit} className="mt-7 grid gap-3">
+            {errors.form && (
+              <div className="rounded-2xl border border-rose-200 bg-rose-50 px-3 py-2 text-sm font-semibold text-rose-600">
+                {errors.form}
+              </div>
+            )}
+
             <label
               className={`rounded-2xl border bg-zinc-50 px-3 py-2 transition focus-within:border-emerald-300 ${
-                errors.email ? 'border-rose-200 bg-rose-50/70' : 'border-zinc-200'
+                errors.username ? 'border-rose-200 bg-rose-50/70' : 'border-zinc-200'
               }`}
             >
               <span className="text-[10px] font-bold uppercase tracking-[0.22em] text-zinc-500">
-                Email
+                Username
               </span>
               <input
                 type="text"
-                inputMode="email"
-                autoComplete="email"
-                value={email}
+                autoComplete="username"
+                value={username}
                 onChange={(event) => {
-                  setEmail(event.target.value)
-                  setErrors((currentErrors) => ({ ...currentErrors, email: undefined }))
+                  setUsername(event.target.value)
+                  setErrors((currentErrors) => ({
+                    ...currentErrors,
+                    username: undefined,
+                    form: undefined,
+                  }))
                 }}
-                placeholder="name@example.com"
+                placeholder="superadmin@gmail.com"
                 className="mt-1 w-full bg-transparent text-sm font-semibold text-zinc-950 outline-none placeholder:text-zinc-400"
               />
-              {errors.email && (
+              {errors.username && (
                 <span className="mt-2 block text-xs font-semibold text-rose-500">
-                  {errors.email}
+                  {errors.username}
                 </span>
               )}
             </label>
@@ -165,7 +196,11 @@ export function LoginPage({ onBack }: LoginPageProps) {
                 value={password}
                 onChange={(event) => {
                   setPassword(event.target.value)
-                  setErrors((currentErrors) => ({ ...currentErrors, password: undefined }))
+                  setErrors((currentErrors) => ({
+                    ...currentErrors,
+                    password: undefined,
+                    form: undefined,
+                  }))
                 }}
                 placeholder="Enter password"
                 className="mt-1 w-full bg-transparent text-sm font-semibold text-zinc-950 outline-none placeholder:text-zinc-400"
@@ -189,9 +224,10 @@ export function LoginPage({ onBack }: LoginPageProps) {
 
             <button
               type="submit"
+              disabled={isSubmitting}
               className="mt-2 rounded-2xl bg-zinc-950 px-4 py-3 text-sm font-bold text-white shadow-[0_18px_36px_rgba(24,24,27,0.2)] transition hover:bg-emerald-600"
             >
-              Continue
+              {isSubmitting ? 'Signing in...' : 'Continue'}
             </button>
 
             <button
